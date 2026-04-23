@@ -1,1 +1,3 @@
-# Initialize module
+from app.api.routers.leads import router as leads_router
+
+__all__ = ["leads_router"]

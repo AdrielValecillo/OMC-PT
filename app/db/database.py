@@ -1,31 +1,41 @@
-import os
-from dotenv import load_dotenv
+from collections.abc import Generator
+
 from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
 
-load_dotenv("./.env")
+from app.core import get_settings
 
-# Replace the placeholders with your PostgreSQL connection details
-db_user = os.getenv('DB_USER')
-db_password = os.getenv('DB_PASSWORD')
-db_host = os.getenv('DB_HOST')
-db_port = os.getenv('DB_PORT')
-db_name = os.getenv('DB_NAME')
+settings = get_settings()
+database_url = settings.database_url
+if database_url is None:
+    raise RuntimeError("DATABASE_URL no pudo resolverse.")
 
-# Create the connection string
-db_url = f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}'
+engine: Engine
+if database_url.startswith("sqlite"):
+    engine = create_engine(
+        database_url,
+        connect_args={"check_same_thread": False},
+        pool_pre_ping=True,
+    )
+else:
+    engine = create_engine(database_url, pool_pre_ping=True)
 
-engine = create_engine(
-    db_url, connect_args={"check_same_thread": False}
-)
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# declarative_base: Creates a base class for defining ORM models.
 Base = declarative_base()
 
-def get_db():
+
+def create_tables() -> None:
+    from app.db import models
+
+    _ = models
+    Base.metadata.create_all(bind=engine)
+
+
+def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
