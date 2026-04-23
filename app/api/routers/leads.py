@@ -7,13 +7,18 @@ from fastapi import Query
 from fastapi import Response
 from fastapi import status
 
+from app.api.dependencies import get_ai_service
 from app.api.dependencies import get_lead_service
 from app.db.enums import LeadSource
+from app.db.schemas import AISummaryRequest
+from app.db.schemas import AISummaryResponse
 from app.db.schemas import LeadCreate
 from app.db.schemas import LeadListResponse
 from app.db.schemas import LeadRead
 from app.db.schemas import LeadStatsResponse
 from app.db.schemas import LeadUpdate
+from app.services import AIConfigurationError
+from app.services import AIService
 from app.services import DuplicateLeadEmailError
 from app.services import LeadNotFoundError
 from app.services import LeadService
@@ -63,6 +68,62 @@ def list_leads(
 @router.get("/stats", response_model=LeadStatsResponse)
 def get_stats(service: LeadService = Depends(get_lead_service)) -> LeadStatsResponse:
     return service.get_stats()
+
+
+@router.post("/ai/summary", response_model=AISummaryResponse)
+def get_ai_summary(
+    payload: AISummaryRequest,
+    lead_service: LeadService = Depends(get_lead_service),
+    ai_service: AIService = Depends(get_ai_service),
+) -> AISummaryResponse:
+    try:
+        # Fetch up to 100 recent leads matching the filters to send to Gemini
+        items, _ = lead_service.list_leads(
+            page=1,
+            limit=100,
+            fuente=payload.fuente,
+            fecha_inicio=payload.fecha_inicio,
+            fecha_fin=payload.fecha_fin,
+        )
+
+        used_filters = any(
+            value is not None
+            for value in (payload.fuente, payload.fecha_inicio, payload.fecha_fin)
+        )
+        fallback_note = ""
+        if not items and used_filters:
+            items, _ = lead_service.list_leads(
+                page=1,
+                limit=100,
+                fuente=None,
+                fecha_inicio=None,
+                fecha_fin=None,
+            )
+            if items:
+                fallback_note = (
+                    "No se encontraron leads con los filtros indicados; "
+                    "se genero el resumen con los leads mas recientes. "
+                )
+        
+        # Serialize the subset of fields useful for AI analysis
+        leads_data = [
+            {
+                "fuente": item.fuente.value,
+                "producto_interes": item.producto_interes,
+                "presupuesto": item.presupuesto,
+                "creado": item.created_at.isoformat()
+            }
+            for item in items
+        ]
+
+        summary = ai_service.generate_leads_summary(leads_data)
+        return AISummaryResponse(summary=f"{fallback_note}{summary}")
+    except AIConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+
 
 
 @router.get("/{lead_id}", response_model=LeadRead)

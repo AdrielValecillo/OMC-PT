@@ -22,6 +22,9 @@ class Settings(BaseSettings):
 
     db_auto_create: bool = True
 
+    api_key_gemini: str | None = None
+
+
     cors_allow_origins: list[str] = Field(default_factory=lambda: ["*"])
     cors_allow_credentials: bool = True
     cors_allow_methods: list[str] = Field(default_factory=lambda: ["*"])

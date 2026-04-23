@@ -53,3 +53,14 @@ class LeadStatsResponse(BaseModel):
     leads_por_fuente: dict[LeadSource, int]
     promedio_presupuesto: Decimal
     leads_ultimos_7_dias: int
+
+
+class AISummaryRequest(BaseModel):
+    fuente: LeadSource | None = Field(default=None, description="Filtrar por fuente de origen")
+    fecha_inicio: datetime | None = Field(default=None, description="Fecha de inicio (opcional)")
+    fecha_fin: datetime | None = Field(default=None, description="Fecha de fin (opcional)")
+
+
+class AISummaryResponse(BaseModel):
+    summary: str
+

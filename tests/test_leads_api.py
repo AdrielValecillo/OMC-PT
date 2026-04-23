@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import pytest
 
 
 def test_create_lead(client: TestClient) -> None:
@@ -145,3 +146,56 @@ def test_stats(client: TestClient) -> None:
     assert body["leads_por_fuente"]["facebook"] == 1
     assert body["promedio_presupuesto"] == "200.00"
     assert body["leads_ultimos_7_dias"] == 2
+
+
+def test_ai_summary_success(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Set fake API key so AI Service doesn't fail init
+    monkeypatch.setenv("API_KEY_GEMINI", "fake_key")
+    
+    # Mock the Gemini client directly
+    class FakeResponse:
+        text = "Resumen ejecutivo simulado: Excelente rendimiento."
+        
+    class FakeModels:
+        def generate_content(self, model, contents, config=None):
+            return FakeResponse()
+            
+    class FakeClient:
+        def __init__(self, api_key):
+            self.models = FakeModels()
+            
+    import google.genai as genai
+    monkeypatch.setattr(genai, "Client", FakeClient)
+
+    # Need at least one lead so it calls generate_content
+    client.post(
+        "/leads",
+        json={
+            "nombre": "AI Test",
+            "email": "ai.test@example.com",
+            "fuente": "facebook",
+        },
+    )
+
+    response = client.post("/leads/ai/summary", json={})
+
+    assert response.status_code == 200
+    assert "Resumen ejecutivo simulado" in response.json()["summary"]
+
+
+def test_ai_summary_missing_api_key(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Force missing API key even if `.env` defines one
+    monkeypatch.setenv("API_KEY_GEMINI", "")
+    # Refresh settings because it's cached via lru_cache
+    from app.core import get_settings
+    get_settings.cache_clear()
+
+    response = client.post("/leads/ai/summary", json={})
+    
+    # Expect 503 from the endpoint catching AIConfigurationError
+    assert response.status_code == 503
+    assert response.json()["detail"] == "API_KEY_GEMINI no está configurada."
+    
+    # Re-cache clear for next tests if needed
+    get_settings.cache_clear()
+
